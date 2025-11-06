@@ -1,0 +1,503 @@
+---
+title: "Topic Modeling and Text Mining Handout"
+subtitle: "Workshop Session at 2025 Rawley Conference"
+author: "Pei-Ying Chen"
+format: 
+  html: 
+    toc: true
+    number-sections: true
+    code-fold: show
+    self-contained: true
+editor: source
+execute: 
+  warning: false
+  message: false
+---
+
+::: callout-note
+
+## Disclosure
+
+Some proofreading and wording suggestions were assisted by ChatGPT-5.
+
+:::
+
+```{r}
+# renv::snapshot()
+```
+
+```{r}
+#| label: setup
+#| include: true
+#| fig-width: 8
+#| fig-height: 4.5
+
+# Global chunk options & libraries
+# rm(list = ls())
+set.seed(68503)
+knitr::opts_chunk$set(fig.width = 8, fig.height = 4.5)
+suppressPackageStartupMessages({
+library(here)
+library(janitor)
+library(tidyverse)
+library(tidytext)
+library(ggthemes)
+library(forcats)
+})
+
+theme_set(theme_bw() + theme(panel.grid = element_line(linewidth = 1/5)))
+```
+
+## Web scraping
+
+Ref. `DN_Opinions_00_scrape.R`
+
+<!-- ANNOTATION: Consider documenting target site, robots.txt compliance, rate‑limiting, and selectors used. A short bullet list here helps reviewers reproduce the scrape. -->
+
+## Construct a dataset from HTML files
+
+Ref. 
+
+- `DN_Opinions_01_import.R`
+- `DN_Opinions_02_import_add.R`
+
+<!-- ANNOTATION: Briefly describe added fields (e.g., `category_rc`, `id`, `year`, `body`) and any deduplication/cleaning performed. -->
+
+## Data wrangling
+
+Ref. `DN_Opinions_03_wrangle.R`
+
+<!-- ANNOTATION: If `category_rc` is a recode, note the mapping and rationale. -->
+
+## Exploratory data analysis
+
+```{r}
+#| label: load-wrangled
+
+# Loads wrangled data created in earlier scripts.
+load(here("work", "gen", "DN_Opinions_wrangle.RData"))
+stopifnot(exists("opinions_df"))
+```
+
+```{r}
+#| label: tab-category
+
+# Quick category table
+opinions_df |> 
+  count(category_rc) |> 
+  arrange(desc(n))
+```
+
+::: callout-note
+Only *n = 2* articles are in `OTHER`. Consider removing these from subsequent analyses or merging into the closest category to avoid sparsity.
+:::
+
+```{r}
+#| label: plot-yearly
+
+# Articles per year by category
+opinions_df |>
+  count(category_rc, year) |>
+  ggplot(aes(x = year, y = n, fill = category_rc)) +
+  geom_col() +
+  labs(x = "Year", y = "# Articles", fill = "Category") +
+  scale_fill_colorblind()
+```
+
+::: callout-note
+`OPINIONS` appear concentrated in the last two years; not necessarily reflects publication trends but data collection bias.
+:::
+
+### Most frequent words by category
+
+```{r}
+#| label: tidy-anti-stop
+
+# Tokenize and remove stopwords; drop OTHER for stability
+tidy_opinions <- opinions_df |>
+  filter(category_rc != "OTHER") |>
+  unnest_tokens(output = word, input = body) |>
+  anti_join(stop_words)
+
+category_words_top <- tidy_opinions |>
+  group_by(category_rc) |>
+  count(word, sort = TRUE) |>
+  slice_max(n, n = 20)
+```
+
+```{r}
+#| label: top-words-facets
+
+category_words_top |>
+  ungroup() |>
+  ggplot(aes(x = n, y = reorder_within(word, n, category_rc), fill = category_rc)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~category_rc, scales = "free") +
+  labs(x = "Frequency", y = "") +
+  scale_y_reordered() +
+  scale_fill_colorblind()
+```
+
+```{r}
+#| label: word-order
+
+# Compute order for a heatmap view
+category_words_top <- category_words_top |>
+  group_by(word) |>
+  mutate(
+    word_count = sum(n),
+    cate_count = length(category_rc)
+  )
+
+category_words_top_w <- category_words_top |>
+  group_by(word) |>
+  pivot_wider(names_from = category_rc, values_from = n, values_fill = 0)
+
+category_words_top_w <- clean_names(category_words_top_w)
+
+word_order <- category_words_top_w |>
+  arrange(desc(cate_count), desc(word_count)) |>
+  pull(word)
+```
+
+```{r}
+#| label: heatmap-top-words
+#| fig-height: 6
+
+category_words_top |>
+  ggplot(aes(
+    x = factor(category_rc, levels = c("OPINION", "EDITORIAL", "LETTER TO THE EDITOR")),
+    y = factor(word, rev(word_order)), fill = n
+  )) +
+  geom_tile() +
+  labs(x = "", y = "", fill = "Freq.") +
+  scale_fill_viridis_c(option = "B") +
+  theme_minimal() + 
+  theme(panel.grid = element_blank())
+```
+
+### TF–IDF by category
+
+```{r}
+#| label: tf-idf-by-category
+
+category_words <- tidy_opinions |>
+  count(category_rc, word, sort = TRUE) |>
+  bind_tf_idf(word, category_rc, n)
+
+category_words |>
+  group_by(category_rc) |>
+  slice_max(tf_idf, n = 15) |>
+  ungroup() |>
+  ggplot(aes(
+    x = tf_idf, y = reorder_within(word, tf_idf, category_rc),
+    fill = category_rc
+  )) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~category_rc, scales = "free") +
+  labs(x = "TF-IDF", y = "") +
+  scale_y_reordered() +
+  scale_fill_colorblind()
+```
+
+## Topic modeling: LDA
+
+```{r}
+#| label: lda-lib
+
+library(topicmodels)
+```
+
+**Prepare data**
+
+```{r}
+#| label: lda-prepare
+
+opinions_df <- opinions_df |>
+  filter(category_rc != "OTHER")
+
+# Review high-frequency tokens
+tidy_opinions |>
+  count(word, sort = TRUE)
+
+# Add custom stopwords
+stop_words2 <- stop_words |>
+  bind_rows(
+    tibble(
+      word = c(
+        "students", "student", "people",
+        "it’s", "college",
+        "dailynebraskan.com", "daily", "nebraskan", "dn"
+      ),
+      lexicon = "custom"
+    )
+  )
+
+# Rebuild tidy tokens after augmenting stoplist
+tidy_opinions <- opinions_df |>
+  unnest_tokens(output = word, input = body) |>
+  anti_join(stop_words2)
+
+# Convert to document–term matrix
+opinions_dtm <- tidy_opinions |>
+  count(id, word) |>
+  cast_dtm(id, word, n)
+```
+
+**Initial model**
+
+```{r}
+#| label: lda-init
+
+lda_init <- LDA(opinions_dtm, k = 3, control = list(seed = 68503))
+lad_topics <- tidy(lda_init, matrix = "beta")
+
+lda_top_terms <- lad_topics |>
+  group_by(topic) |>
+  slice_max(beta, n = 10) |>
+  ungroup() |>
+  arrange(topic, -beta)
+
+lda_top_terms |>
+  mutate(term = reorder_within(term, beta, topic)) |>
+  ggplot(aes(x = beta, y = factor(term))) +
+  geom_col() +
+  labs(y = "") +
+  scale_y_reordered() +
+  facet_wrap(~topic, scales = "free")
+```
+
+**Updated model**
+
+```{r}
+#| label: lda-update
+
+lda_update <- LDA(opinions_dtm, k = 20, control = list(seed = 68503))
+lad_topics <- tidy(lda_update, matrix = "beta")
+
+lda_top_terms <- lad_topics |>
+  group_by(topic) |>
+  slice_max(beta, n = 10) |>
+  ungroup() |>
+  arrange(topic, -beta)
+```
+
+```{r}
+#| label: lda-plot-top-terms
+#| fig-width: 10
+#| fig-height: 8
+
+lda_top_terms |>
+  mutate(term = reorder_within(term, beta, topic)) |>
+  ggplot(aes(x = beta, y = factor(term))) +
+  geom_col() +
+  scale_y_reordered() +
+  facet_wrap(~topic, scales = "free")
+```
+
+```{r}
+#| label: lda-docs
+
+lda_documents <- tidy(lda_update, matrix = "gamma")
+
+lda_documents <- lda_documents |>
+  left_join(
+    opinions_df |>
+      select(id, category_rc),
+    by = join_by(document == id)
+  )
+
+lda_documents |>
+  group_by(category_rc, document) |>
+  slice_max(gamma, n = 1) -> lda_documents_topic
+
+lda_documents_topic |>
+  group_by(category_rc, topic) |>
+  tally() |>
+  ungroup() |>
+  group_by(topic) |>
+  mutate(
+    N = sum(n),
+    frac = n / N
+  ) |>
+  ungroup() -> lda_documents_topic_summ
+```
+
+```{r}
+#| label: lda-docs-plot
+
+lda_documents_topic_summ |>
+  ggplot(aes(
+    x = fct_reorder(factor(topic), N, .desc = TRUE),
+    y = n, fill = category_rc
+  )) +
+  geom_col() +
+  labs(x = "Topic", y = "# Articles", fill = "Category") +
+  scale_y_continuous(n.breaks = 6) +
+  scale_fill_colorblind()
+```
+
+## Topic modeling: STM
+
+```{r}
+#| label: stm-lib
+
+library(stm)
+```
+
+**Process data**
+
+```{r}
+#| label: stm-process
+
+processed <- textProcessor(opinions_df$body,
+  metadata = opinions_df
+)
+
+# Visual check of pruning threshold
+plotRemoved(processed$documents, lower.thresh = seq(1, 10, by = 1))
+
+out <- prepDocuments(
+  processed$documents,
+  processed$vocab,
+  processed$meta,
+  lower.thresh = 2
+)
+
+docs <- out$documents
+vocab <- out$vocab
+meta <- out$meta
+```
+
+**Initial model**
+
+```{r}
+#| label: stm-init
+
+stm_init <- stm(
+  documents = docs,
+  vocab = vocab,
+  data = meta,
+  K = 10,
+  prevalence = ~category_rc,
+  max.em.its = 75,
+  init.type = "Spectral",
+  verbose = FALSE
+)
+```
+
+```{r}
+#| label: stm-init-summary
+
+plot(stm_init,
+  type = "summary", n = 8,
+  xlim = c(0, 1)
+)
+```
+
+**Find K**
+
+```{r}
+#| label: stm-search-k
+
+findingk <- searchK(
+  documents = docs,
+  vocab = vocab,
+  data = meta,
+  K = c(5:30),
+  prevalence = ~category_rc,
+  verbose = FALSE
+)
+```
+
+```{r}
+#| label: stm-searchk-plot
+
+plot(findingk)
+```
+
+**Updated model**
+
+```{r}
+#| label: stm-update
+
+stm_update <- stm(
+  documents = docs,
+  vocab = vocab,
+  data = meta,
+  K = 20,
+  prevalence = ~category_rc,
+  max.em.its = 75,
+  init.type = "Spectral",
+  verbose = FALSE
+)
+```
+
+```{r}
+#| label: stm-update-summary
+#| fig-height: 6
+
+plot(stm_update,
+  type = "summary", n = 8,
+  xlim = c(0, 1)
+)
+```
+
+**Estimate metadata/topic relationships**
+
+```{r}
+#| label: stm-estimate
+
+meta$category_rc <- as.factor(meta$category_rc)
+
+predict_topics <- estimateEffect(
+  formula = 1:20 ~ category_rc, stmobj = stm_update,
+  metadata = meta, uncertainty = "Global"
+)
+
+# Inspect effects for each topic
+lapply(1:20, function(x) summary(predict_topics, topics = x))
+```
+
+::: callout-note
+Summary:
+
+- Topics 2, 13, 16, 19: less likely to be *OPINION*.
+- Topics 10, 15: more likely to be *OPINION*.
+- Topic 11: more likely to be *LETTER TO THE EDITOR*.
+:::
+
+```{r}
+#| label: stm-labels
+
+labelTopics(stm_update, c(2, 13, 16, 19, 10, 15, 11))
+```
+
+```{r}
+#| label: stm-diffplot
+
+plot(predict_topics,
+  covariate = "category_rc",
+  topics = c(2, 13, 16, 19, 10, 15),
+  model = stm_update,
+  method = "difference",
+  cov.value1 = "EDITORIAL",
+  cov.value2 = "OPINION",
+  labeltype = "custom",
+  custom.labels = c("T2", "T13", "T16", "T19", "T10", "T15"),
+  xlab = "More OPINION ... More EDITORIAL"
+)
+```
+
+```{r}
+#| label: stm-ldavis
+
+# Optional interactive visualization (serves in browser when knitting)
+toLDAvis(stm_update, docs = docs, R = 15, reorder.topics = FALSE)
+```
+
+```{r}
+#| label: session-info
+
+sessionInfo()
+```
