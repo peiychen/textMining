@@ -1,0 +1,238 @@
+---
+title: "Topic Modeling and Text Mining"
+subtitle: "Workshop Session at 2025 Rawley Conference"
+author: "Pei-Ying Chen"
+date: "November 6, 2025"
+date-format: long
+date-modified: today
+format: 
+  revealjs:
+    theme: simple
+    smaller: true
+    self-contained: true
+editor: source
+bibliography: textMining_Rawley2025.bib
+csl: apa7.csl
+footer: "Last update: {{< meta date-modified >}}"
+---
+
+
+## About Me
+
+#### <u>Current Position</u>
+
+**Assistant Professor, Digital Scholarship & Sciences Librarian**, Research Partnerships, University Libraries, University of Nebraska–Lincoln (August 2025–)
+
+#### <u>Education</u>
+
+- **Ph.D., Information Science** (minor: Sociology), Indiana University Bloomington, IN, USA
+- **M.S., Applied Statistics**, Indiana University Bloomington, IN, USA
+- **M.A., History** (concentration: Science, Technology, Society), National Tsing Hua University, Hsinchu, Taiwan
+- **B.A., Foreign Languages and Literatures** (double major: Sociology), National Taiwan University, Taipei, Taiwan
+
+## Agenda
+
+#### <u>Lecture</u> (20--30mins)
+
+- Gentle Intro to Text Mining and Topic Modeling
+- Historian's Applications & Critique: Jo Guldi 
+- Comparing Topic Modeling Methods: LDA / BERTopic / TopicGPT
+- UNL Libraries (Digital) Collections
+- Important Reminders & Pitfalls
+- References, Resources, & Further Readings
+
+#### <u>Hands-on Session</u> (50--60 mins)
+
+- A small corpus built from the [*The Daily Nebraskan*](https://www.dailynebraskan.com/): Editorial, Letter to the Editor, Opinion
+- Run topic modelings using `topicmodels` for LDA & `stm` for Structural Topic Modeling
+
+# Lecture
+
+## Welcome & Warm-Up
+
+- Who here has used **R** or **Python** before?
+  - Beginner / never used  
+  - Some hands-on  
+  - Intermediate  
+  - Expert
+- Have you heard of **text mining**?
+- Have you ever run **topic modeling**?
+
+## What is Text Mining?
+
+- Computational methods for analyzing **large collections of text**
+- Common goals
+  - Patterns
+  - Themes/Topics
+  - Sentiment
+  - Named entities
+  
+## What is Topic Modeling?
+
+- A family of techniques that analyze **"bags" or groups of words together**
+- Captures **broader context** instead of just word counts
+- Helps find **latent themes** in text collections
+- Use cases
+  - Literature & historical corpora
+  - News & social media
+- cf. cluster analysis: 1 document <> 1 cluster
+  - Each document may contain **multiple topics** with different probabilities
+  - Use iterative Bayesian algorithms
+
+## Latent Dirichlet Allocation (LDA)
+
+- Most common algorithm for topic models => infer the hidden topic structure using the observed documents [@blei2012]
+- Principles [@silge2017]
+  - Every document = a **mixture of topics**
+  - Every topic = a **mixture of words** => words can be shared between topics
+- Outputs
+  - **Top words** for each topic  
+    - e.g. Topic 1 (Genetics): human, genome, dna, genetic, gene; Topic 2 (Evolution): evolution, evolutionary, species, organisms, life; Topic 3 (Disease): disease, host, bacteria, deceases, resistance 
+  - **Topic probabilities** for each document  
+    - Document A => 0.57 Topic 1, 0.35 Topic 2, 0.08 Topic 3
+
+## An Illustration
+
+![](blei2012_figure01.png)
+
+![](blei2012_figure02.png){.absolute bottom=0 right=-10 width="400"}
+
+::: {style="text-align: center;"}
+[@blei2012]
+:::
+
+## Limitations
+
+- **"Bag of words"** assumption: ignore word order and semantic meaning
+- **"Reading tea leaves"** problem [@chang2009]: # topics and interpretation are subjective/arbitrary
+- **Needs human judgment**: validation and expertise required
+
+## Historian's Application and Critique: Jo Guldi
+
+<u>Parliament's Debates about Infrastructure</u> [@guldi2019]
+
+- Applies topic modeling and dynamic topic modeling to synthesize the historical record, with different degrees of granularity for analysis: 4 / 10 / 100 / 500 / 1000 topics
+- **80/20 rule**: 80% of the findings conform to what scholars already know, but the remaining 20% may revealing new patterns
+  - e.g., the word "Shannon" appeared earlier in a discussion of river improvement and drainage, than the more familiar Thames in the same topic (p. 7)
+- Institutional divides: Army vs. Navy; Conservatives vs. Liberals
+- Geographical and temporal/dialectical shifts
+
+## {.center}
+
+![](guldi2019_table10.png)
+
+## {.center}
+
+<u>The Dangerous Art of Text Mining</u> [@guldi2023]
+
+> [W]ithout help from the humanities, data science can distort the past and lead to perilous errors.
+
+::: {layout=[1,1]}
+
+![](https://m.media-amazon.com/images/I/71iMnJOWR6L._SL1500_.jpg){width=280}
+
+![](guldi2023_figure02.png)
+
+:::
+
+
+## Comparison of Topic Modeling Methods
+
+<!-- height: 100%; display: flex; justify-content: center; align-items: center; -->
+
+::: {style="font-size: 12pt;"}
+
+| Feature / Method | **LDA** [@blei2003] | **BERTopic** [@grootendorst2022] | **TopicGPT** [@pham2024] |
+|---|---|---|---|
+| **Approach** | Probabilistic topic model (Bayesian) | Transformer-based embeddings + clustering + class-based TF-IDF | LLM / GPT-based prompting and summarization |
+| **Best for** | Longer text (hundreds of words per document) | Short text (tweets, headlines), mixed-length corpora | Flexible lengths |
+| **Input Representation** | Bag of words | Dense semantic embeddings | Natural-language prompts |
+| **Output** | Topic-word distributions; document-topic probabilities | Human-readable topic labels automatically; cluster assignments | Natural-language topic labels; coherent summaries |
+| **Interpretability** | Requires human reading of top words | Usually more coherent topics | Often most interpretable |
+| **Computational Cost** | Low–moderate | Moderate; depends on embedding model | High; relies on LLM inference |
+| **Libraries / Tools** | `topicmodels`, `stm` (R), `gensim`, `scikit-learn` (Python), MALLET | `bertopic` (Python) | custom LLM pipelines |
+| **Parameter Tuning** | Choose # of topics *k* | HDBSCAN clustering parameters, dimensionality reduction | Prompt templates; LLM model choice |
+| **Advantages** | Proven, transparent, reproducible, lightweight | Works well for short texts; coherent topics; automatic naming | Extremely interpretable; strong for messy or domain-specific corpora |
+| **Limitations** | Bag-of-words misses semantics; topics can be vague | Can struggle with very small corpora or noisy embeddings | Expensive, proprietary models, reproducibility issues |
+<!-- | **When to Use** | Historical corpora, books, long articles | Tweets, abstracts, news, mixed data | When human-readable topic labels are crucial; exploratory analysis | -->
+
+:::
+
+## Structural Topic Modeling with `stm`
+
+::: {layout=[1,1]}
+
+![Flowchart](stm-flowchart.png){height=480}
+
+![Diagram](stm-diagram.png){height=480}
+
+:::
+
+
+::: {style="text-align: right;"}
+[@roberts2019]
+:::
+
+## UNL Libraries Collections
+
+- [Digital Humanities Projects](https://cdrh.unl.edu/digital-scholarship/) \@Center for Digital Research in the Humanities (CDRH)
+  - [Nebraska Newspapers](https://nebnewspapers.unl.edu/) - full-text available but needs considerable processing
+  - [Journals of the Lewis and Clark Expedition Online](https://lewisandclarkjournals.unl.edu/) - high-quality full-text data with comprehensive annotation
+- [Notable Collections](https://libraries.unl.edu/archives-special-collections/explore-our-collections/explore-notable-collections/) \@Archives & Special Collections
+
+## Things to Keep in Mind
+
+- Constructing a **clean corpus** can be labor-intensive
+- Topic modeling as a "tool for reading" & a way of making educated guesses
+- Human reading is required
+
+## References
+
+::: {#refs style="font-size: 16pt;"}
+:::
+
+## Resources & Further Readings
+
+::: {style="font-size: 16pt;"}
+
+- [An Introduction to Text Analysis](https://sicss.io/overview/introduction-to-text-analysis) &  [Topic Models](https://sicss.io/overview/topic-models) by Professor Chris Bail of Duke University \@The Summer Institutes in Computational Social Science (SICSS)
+- Guldi, J. (2024). The revolution in text mining for historical analysis is here. _The American Historical Review_, _129_(2), 519–543. <https://doi.org/10.1093/ahr/rhae163>
+- Grimmer, J., Robert, M. E., & Stewart, B. M. (2022). _Text as data: A new framework for machine learning and the social sciences_. Princeton University Press. <https://press.princeton.edu/books/hardcover/9780691207544/text-as-data>
+- Karsdorp, F., Kestemont, M., & Riddell, A. (2021). _Humanities data analysis: Case studies with Python_. Princeton University Press. <https://press.princeton.edu/books/hardcover/9780691172361/humanities-data-analysis>
+- Story, D., & Guldi, J. (2025, January 15). Jo Guldi on text mining, AI, and digital history [Broadcast]. <https://www.historians.org/podcast/jo-guldi-on-text-mining-ai-and-digital-history/>
+- UC Berkeley Social Science Matrix. (2023, April 12). Jo Guldi: Towards a practice of text mining to understand change over historical time [Video recording]. <https://www.youtube.com/watch?v=Jl00B_KqH6U>
+
+:::
+
+# Hands-on Session
+
+## Install R, RStudio & Download Code
+
+- R: <https://cloud.r-project.org/>
+- RStudio: <https://posit.co/downloads/>
+- GitHub Repo: <https://github.com/peiychen/textMining>
+
+![](adobe-express-qr-code.png){fig-align="center" width=200}
+
+# Shameless Promotion 🙈
+
+## GIS Day 2025
+
+- **Time**: Monday, November 10, 2025 1--2 pm
+- **Place**: Peterson Room 211, Love Library (City Campus)
+
+<u>Main Activities</u>
+
+- I will present a project titled **"Exploring Nebraska's Farmers Markets Using an R Shiny Dashboard,"** demonstrating how interactive data visualization can reveal insights into local products, growers, and their connections to space/place.
+- Kurt J. Elder, Information Intelligence and Special Project Coordination professional with the City of Lincoln, will showcase the **Healthy Food Access 2025** map, which identifies neighborhoods with limited access to healthy food and helps guide targeted interventions.
+- Recognition of this year's Map Competition winners, with posters on display during the reception.
+
+*Light refreshments will be provided.* | More details: <https://unl.libguides.com/unlgisday>
+
+# Thank You! Questions?
+
+Pei-Ying Chen | <pchen12@unl.edu> | LLS 218D
+
+
+
+
